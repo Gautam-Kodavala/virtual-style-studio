@@ -2,6 +2,8 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Wand2, Sparkles, Download, Share2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 import UploadCard from "./UploadCard";
 
 interface TryOnResult {
@@ -21,6 +23,7 @@ const TryOnTool = ({ onNewResult }: TryOnToolProps) => {
   const [clothingImage, setClothingImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const handlePersonUpload = (file: File) => {
     const reader = new FileReader();
@@ -45,23 +48,49 @@ const TryOnTool = ({ onNewResult }: TryOnToolProps) => {
 
     setIsProcessing(true);
     
-    // Simulate AI processing (in production, this would call an API like Replicate)
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
-    // For demo, we'll use the person image as the result
-    // In production, this would be the AI-generated composite
-    setResult(personImage);
-    
-    const newResult: TryOnResult = {
-      id: Date.now().toString(),
-      personImage,
-      clothingImage,
-      resultImage: personImage,
-      timestamp: new Date(),
-    };
-    onNewResult(newResult);
-    
-    setIsProcessing(false);
+    try {
+      const { data, error } = await supabase.functions.invoke('virtual-tryon', {
+        body: { 
+          personImage,
+          clothingImage
+        }
+      });
+
+      if (error) {
+        throw new Error(error.message || 'Failed to generate try-on');
+      }
+
+      if (data?.error) {
+        throw new Error(data.error);
+      }
+
+      const resultImage = data?.resultImage || personImage;
+      setResult(resultImage);
+      
+      const newResult: TryOnResult = {
+        id: Date.now().toString(),
+        personImage,
+        clothingImage,
+        resultImage,
+        timestamp: new Date(),
+      };
+      onNewResult(newResult);
+
+      toast({
+        title: "Virtual Try-On Complete!",
+        description: "Your AI-generated look is ready.",
+      });
+
+    } catch (error) {
+      console.error('Error generating try-on:', error);
+      toast({
+        title: "Generation Failed",
+        description: error instanceof Error ? error.message : "Something went wrong. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleReset = () => {
